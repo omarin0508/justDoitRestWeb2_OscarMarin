@@ -29,7 +29,7 @@ public class TaskArchiverImpl implements TaskArchiver {
         String contentBody =  user.getName() + " - " + task.getDescription() + " - " + task.getStatus();
 
         ArchiveRequestDto archiveRequest = new ArchiveRequestDto();
-        archiveRequest.setCategory("tasks");
+        archiveRequest.setCategory("tasks-deleted");
         archiveRequest.setId(String.valueOf(task.getId()));
         archiveRequest.setContent(contentBody);
 
