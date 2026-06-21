@@ -1,0 +1,162 @@
+[1mdiff --git a/src/main/java/teccr/justdoitcloud/api/TasksController.java b/src/main/java/teccr/justdoitcloud/api/TasksController.java[m
+[1mindex 18efb3d..0576d0f 100644[m
+[1m--- a/src/main/java/teccr/justdoitcloud/api/TasksController.java[m
+[1m+++ b/src/main/java/teccr/justdoitcloud/api/TasksController.java[m
+[36m@@ -31,37 +31,60 @@[m [mpublic class TasksController {[m
+     public Task addTaskToUser(@PathVariable Long userId,[m
+                               @RequestBody(required = false) Task task,[m
+                               @RequestParam(name = "autogenerate", required = false) String autogenerate) {[m
+[32m+[m
+         User user = new User();[m
+         user.setId(userId);[m
+ [m
+[31m-        boolean auto = autogenerate != null && (autogenerate.isEmpty() || autogenerate.equalsIgnoreCase("true"));[m
+[32m+[m[32m        boolean auto = autogenerate != null &&[m
+[32m+[m[32m                (autogenerate.isEmpty() || autogenerate.equalsIgnoreCase("true"));[m
+ [m
+         if (auto) {[m
+[31m-            // Ignorar el cuerpo y usar el generador para crear la tarea[m
+             return taskService.autogenerateTaskForUser(user);[m
+         }[m
+ [m
+[31m-        // Flujo normal: crear usando el Task provisto en el body[m
+         if (task == null) {[m
+[31m-            throw new IllegalArgumentException("Task body is required when autogenerate is not used");[m
+[32m+[m[32m            throw new IllegalArgumentException([m
+[32m+[m[32m                    "Task body is required when autogenerate is not used"[m
+[32m+[m[32m            );[m
+         }[m
+[32m+[m
+         return taskService.addTaskToUser(user, task);[m
+     }[m
+ [m
+     @GetMapping("/{id}")[m
+[31m-    public ResponseEntity<Task> getTaskById(@PathVariable Long id) {[m
+[31m-        Optional<Task> taskOpt = taskService.getTaskById(id);[m
+[31m-        return taskOpt.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());[m
+[32m+[m[32m    public ResponseEntity<Task> getTaskById(@PathVariable Long userId,[m
+[32m+[m[32m                                            @PathVariable Long id) {[m
+[32m+[m
+[32m+[m[32m        Optional<Task> taskOpt =[m
+[32m+[m[32m                taskService.getTaskByIdForUser(userId, id);[m
+[32m+[m
+[32m+[m[32m        return taskOpt.map(ResponseEntity::ok)[m
+[32m+[m[32m                .orElseGet(() -> ResponseEntity.notFound().build());[m
+     }[m
+ [m
+     @PatchMapping("/{id}")[m
+[31m-    public Task updateTask(@PathVariable Long id, @RequestBody Task task) {[m
+[31m-        return taskService.updateTaskFields(id, task);[m
+[32m+[m[32m    public ResponseEntity<Task> updateTask(@PathVariable Long userId,[m
+[32m+[m[32m                                           @PathVariable Long id,[m
+[32m+[m[32m                                           @RequestBody Task task) {[m
+[32m+[m
+[32m+[m[32m        Optional<Task> updatedTask =[m
+[32m+[m[32m                taskService.updateTaskFieldsForUser(userId, id, task);[m
+[32m+[m
+[32m+[m[32m        return updatedTask.map(ResponseEntity::ok)[m
+[32m+[m[32m                .orElseGet(() -> ResponseEntity.status(HttpStatus.FORBIDDEN).build());[m
+     }[m
+ [m
+     @DeleteMapping("/{id}")[m
+[31m-    @ResponseStatus(HttpStatus.NO_CONTENT)[m
+[31m-    public void deleteTask(@PathVariable Long id) {[m
+[31m-        taskService.deleteTaskById(id);[m
+[32m+[m[32m    public ResponseEntity<Void> deleteTask(@PathVariable Long userId,[m
+[32m+[m[32m                                           @PathVariable Long id) {[m
+[32m+[m
+[32m+[m[32m        boolean deleted =[m
+[32m+[m[32m                taskService.deleteTaskByIdForUser(userId, id);[m
+[32m+[m
+[32m+[m[32m        if (!deleted) {[m
+[32m+[m[32m            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        return ResponseEntity.noContent().build();[m
+     }[m
+[31m-}[m
+[32m+[m[32m}[m
+\ No newline at end of file[m
+[1mdiff --git a/src/main/java/teccr/justdoitcloud/service/TaskService.java b/src/main/java/teccr/justdoitcloud/service/TaskService.java[m
+[1mindex a965d14..c6e8405 100644[m
+[1m--- a/src/main/java/teccr/justdoitcloud/service/TaskService.java[m
+[1m+++ b/src/main/java/teccr/justdoitcloud/service/TaskService.java[m
+[36m@@ -50,8 +50,6 @@[m [mpublic class TaskService {[m
+     }[m
+ [m
+     public Task autogenerateTaskForUser(User user) {[m
+[31m-        // Pendiente: archivar la tarea en categoria "tasks-new" despues de creada[m
+[31m-[m
+         Task task = taskGenerator.generateTask();[m
+         if (task == null) {[m
+             throw new RuntimeException("No se pudo generar la tarea automáticamente");[m
+[36m@@ -73,12 +71,7 @@[m [mpublic class TaskService {[m
+     public Task updateTaskFields(Long id, Task updatedTask) {[m
+         return taskRepository.findById(id)[m
+                 .map(existingTask -> {[m
+[31m-                    if (updatedTask.getDescription() != null && !updatedTask.getDescription().trim().isEmpty()) {[m
+[31m-                        existingTask.setDescription(updatedTask.getDescription().trim());[m
+[31m-                    }[m
+[31m-                    if (updatedTask.getStatus() != null) {[m
+[31m-                        existingTask.setStatus(updatedTask.getStatus());[m
+[31m-                    }[m
+[32m+[m[32m                    applyTaskUpdates(existingTask, updatedTask);[m
+                     return taskRepository.save(existingTask);[m
+                 })[m
+                 .orElseThrow(() -> new RuntimeException("Task not found with id: " + id));[m
+[36m@@ -90,18 +83,75 @@[m [mpublic class TaskService {[m
+             throw new RuntimeException("Task not found with id: " + id);[m
+         }[m
+ [m
+[32m+[m[32m        archiveDeletedTask(maybeTask.get());[m
+[32m+[m[32m        taskRepository.deleteById(id);[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    public Optional<Task> getTaskByIdForUser(Long userId, Long id) {[m
+[32m+[m[32m        if (userId == null || id == null || userId < 0 || id < 0) {[m
+[32m+[m[32m            return Optional.empty();[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        return taskRepository.findById(id)[m
+[32m+[m[32m                .filter(task -> userId.equals(task.getUserId()));[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    public Optional<Task> updateTaskFieldsForUser(Long userId, Long id, Task updatedTask) {[m
+[32m+[m[32m        Optional<Task> maybeTask = getTaskByIdForUser(userId, id);[m
+[32m+[m
+[32m+[m[32m        if (maybeTask.isEmpty()) {[m
+[32m+[m[32m            return Optional.empty();[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        Task existingTask = maybeTask.get();[m
+[32m+[m[32m        applyTaskUpdates(existingTask, updatedTask);[m
+[32m+[m
+[32m+[m[32m        return Optional.of(taskRepository.save(existingTask));[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    public boolean deleteTaskByIdForUser(Long userId, Long id) {[m
+[32m+[m[32m        Optional<Task> maybeTask = getTaskByIdForUser(userId, id);[m
+[32m+[m
+[32m+[m[32m        if (maybeTask.isEmpty()) {[m
+[32m+[m[32m            return false;[m
+[32m+[m[32m        }[m
+[32m+[m
+         Task task = maybeTask.get();[m
+[32m+[m[32m        archiveDeletedTask(task);[m
+[32m+[m[32m        taskRepository.deleteById(id);[m
+[32m+[m
+[32m+[m[32m        return true;[m
+[32m+[m[32m    }[m
+[32m+[m
+[32m+[m[32m    private void applyTaskUpdates(Task existingTask, Task updatedTask) {[m
+[32m+[m[32m        if (updatedTask == null) {[m
+[32m+[m[32m            return;[m
+[32m+[m[32m        }[m
+ [m
+[32m+[m[32m        if (updatedTask.getDescription() != null &&[m
+[32m+[m[32m                !updatedTask.getDescription().trim().isEmpty()) {[m
+[32m+[m[32m            existingTask.setDescription(updatedTask.getDescription().trim());[m
+[32m+[m[32m        }[m
+[32m+[m
+[32m+[m[32m        if (updatedTask.getStatus() != null) {[m
+[32m+[m[32m          

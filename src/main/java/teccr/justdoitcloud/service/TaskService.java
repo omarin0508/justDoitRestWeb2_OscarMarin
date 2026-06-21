@@ -50,8 +50,6 @@ public class TaskService {
     }
 
     public Task autogenerateTaskForUser(User user) {
-        // Pendiente: archivar la tarea en categoria "tasks-new" despues de creada
-
         Task task = taskGenerator.generateTask();
         if (task == null) {
             throw new RuntimeException("No se pudo generar la tarea automáticamente");
@@ -73,12 +71,7 @@ public class TaskService {
     public Task updateTaskFields(Long id, Task updatedTask) {
         return taskRepository.findById(id)
                 .map(existingTask -> {
-                    if (updatedTask.getDescription() != null && !updatedTask.getDescription().trim().isEmpty()) {
-                        existingTask.setDescription(updatedTask.getDescription().trim());
-                    }
-                    if (updatedTask.getStatus() != null) {
-                        existingTask.setStatus(updatedTask.getStatus());
-                    }
+                    applyTaskUpdates(existingTask, updatedTask);
                     return taskRepository.save(existingTask);
                 })
                 .orElseThrow(() -> new RuntimeException("Task not found with id: " + id));
@@ -90,18 +83,75 @@ public class TaskService {
             throw new RuntimeException("Task not found with id: " + id);
         }
 
-        Task task = maybeTask.get();
+        archiveDeletedTask(maybeTask.get());
+        taskRepository.deleteById(id);
+    }
 
+    public Optional<Task> getTaskByIdForUser(Long userId, Long id) {
+        if (userId == null || id == null || userId < 0 || id < 0) {
+            return Optional.empty();
+        }
+
+        return taskRepository.findById(id)
+                .filter(task -> userId.equals(task.getUserId()));
+    }
+
+    public Optional<Task> updateTaskFieldsForUser(Long userId, Long id, Task updatedTask) {
+        Optional<Task> maybeTask = getTaskByIdForUser(userId, id);
+
+        if (maybeTask.isEmpty()) {
+            return Optional.empty();
+        }
+
+        Task existingTask = maybeTask.get();
+        applyTaskUpdates(existingTask, updatedTask);
+
+        return Optional.of(taskRepository.save(existingTask));
+    }
+
+    public boolean deleteTaskByIdForUser(Long userId, Long id) {
+        Optional<Task> maybeTask = getTaskByIdForUser(userId, id);
+
+        if (maybeTask.isEmpty()) {
+            return false;
+        }
+
+        Task task = maybeTask.get();
+        archiveDeletedTask(task);
+        taskRepository.deleteById(id);
+
+        return true;
+    }
+
+    private void applyTaskUpdates(Task existingTask, Task updatedTask) {
+        if (updatedTask == null) {
+            return;
+        }
+
+        if (updatedTask.getDescription() != null &&
+                !updatedTask.getDescription().trim().isEmpty()) {
+            existingTask.setDescription(updatedTask.getDescription().trim());
+        }
+
+        if (updatedTask.getStatus() != null) {
+            existingTask.setStatus(updatedTask.getStatus());
+        }
+    }
+
+    private void archiveDeletedTask(Task task) {
         Optional<User> maybeUser = userRepository.findById(task.getUserId());
+
         maybeUser.ifPresent(user -> {
             try {
                 taskArchiver.archiveTask("tasks-deleted", user, task);
             } catch (Exception ignored) {
-                log.error("Error archiving task with id {} for user id {}: {}", task.getId(), user.getId(), ignored.getMessage());
+                log.error(
+                        "Error archiving task with id {} for user id {}: {}",
+                        task.getId(),
+                        user.getId(),
+                        ignored.getMessage()
+                );
             }
         });
-
-        taskRepository.deleteById(id);
     }
-
 }

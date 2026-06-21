@@ -31,37 +31,60 @@ public class TasksController {
     public Task addTaskToUser(@PathVariable Long userId,
                               @RequestBody(required = false) Task task,
                               @RequestParam(name = "autogenerate", required = false) String autogenerate) {
+
         User user = new User();
         user.setId(userId);
 
-        boolean auto = autogenerate != null && (autogenerate.isEmpty() || autogenerate.equalsIgnoreCase("true"));
+        boolean auto = autogenerate != null &&
+                (autogenerate.isEmpty() || autogenerate.equalsIgnoreCase("true"));
 
         if (auto) {
-            // Ignorar el cuerpo y usar el generador para crear la tarea
             return taskService.autogenerateTaskForUser(user);
         }
 
-        // Flujo normal: crear usando el Task provisto en el body
         if (task == null) {
-            throw new IllegalArgumentException("Task body is required when autogenerate is not used");
+            throw new IllegalArgumentException(
+                    "Task body is required when autogenerate is not used"
+            );
         }
+
         return taskService.addTaskToUser(user, task);
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<Task> getTaskById(@PathVariable Long id) {
-        Optional<Task> taskOpt = taskService.getTaskById(id);
-        return taskOpt.map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+    public ResponseEntity<Task> getTaskById(@PathVariable Long userId,
+                                            @PathVariable Long id) {
+
+        Optional<Task> taskOpt =
+                taskService.getTaskByIdForUser(userId, id);
+
+        return taskOpt.map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     @PatchMapping("/{id}")
-    public Task updateTask(@PathVariable Long id, @RequestBody Task task) {
-        return taskService.updateTaskFields(id, task);
+    public ResponseEntity<Task> updateTask(@PathVariable Long userId,
+                                           @PathVariable Long id,
+                                           @RequestBody Task task) {
+
+        Optional<Task> updatedTask =
+                taskService.updateTaskFieldsForUser(userId, id, task);
+
+        return updatedTask.map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.status(HttpStatus.FORBIDDEN).build());
     }
 
     @DeleteMapping("/{id}")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void deleteTask(@PathVariable Long id) {
-        taskService.deleteTaskById(id);
+    public ResponseEntity<Void> deleteTask(@PathVariable Long userId,
+                                           @PathVariable Long id) {
+
+        boolean deleted =
+                taskService.deleteTaskByIdForUser(userId, id);
+
+        if (!deleted) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+
+        return ResponseEntity.noContent().build();
     }
 }
